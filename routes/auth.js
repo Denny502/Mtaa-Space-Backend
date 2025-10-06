@@ -9,6 +9,7 @@ const { protect } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/register', register);
+router.post('/signup', register); // ADD THIS LINE - maps signup to register
 router.post('/login', login);
 router.get('/me', protect, getMe);
 
