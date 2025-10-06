@@ -1,73 +1,139 @@
 const express = require('express');
 const router = express.Router();
+const Property = require('../models/Property');
+const User = require('../models/User');
 
-// Public routes
-router.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Properties endpoint working',
-    data: []
-  });
-});
-
-router.get('/featured', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Featured properties endpoint working',
-    data: []
-  });
-});
-
-router.get('/:id', (req, res) => {
-  res.json({
-    success: true,
-    message: `Property ${req.params.id} endpoint working`,
-    data: { _id: req.params.id, title: 'Test Property' }
-  });
-});
-
-// ADD PROPERTY - SIMPLIFIED VERSION
-router.post('/', (req, res) => {
-  console.log('📦 Received property data:', req.body);
-  
-  const { title, description, price, location, bedrooms, bathrooms, area } = req.body;
-  
-  // Mock response
-  res.status(201).json({
-    success: true,
-    message: 'Property added successfully!',
-    data: {
-      _id: 'property-' + Date.now(),
-      title: title || 'Test Property',
-      description: description || 'Beautiful apartment',
-      price: price || '25000',
-      location: location || 'Nairobi',
-      bedrooms: bedrooms || 2,
-      bathrooms: bathrooms || 1,
-      area: area || 800,
-      type: 'apartment',
-      amenities: [],
-      images: [],
+// ✅ FIXED: Create property with real agent ID
+router.post('/', async (req, res) => {
+  try {
+    console.log('📦 Received property data:', req.body);
+    
+    const { title, description, price, location, bedrooms, bathrooms, area, type, amenities, images, leaseTerm, deposit } = req.body;
+    
+    // Validate required fields
+    if (!title || !price || !location || !bedrooms || !bathrooms || !area) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields: title, price, location, bedrooms, bathrooms, area'
+      });
+    }
+    
+    // ✅ FIX: Get a real agent from database
+    let agent = await User.findOne({ role: 'agent' });
+    
+    // If no agent exists, create one temporarily
+    if (!agent) {
+      console.log('⚠️ No agent found, creating temporary agent...');
+      agent = await User.create({
+        name: 'System Agent',
+        email: 'system@mtaaspace.com',
+        password: 'temp123456',
+        role: 'agent',
+        phone: '+254700000000'
+      });
+      console.log('✅ Temporary agent created:', agent._id);
+    }
+    
+    console.log('👤 Using agent:', agent._id);
+    
+    // ✅ FIX: Validate and set property type
+    const validTypes = ['apartment', 'studio', 'house', 'condo'];
+    const propertyType = validTypes.includes(type) ? type : 'apartment';
+    
+    // Create property in database with REAL ObjectId
+    const property = await Property.create({
+      title,
+      description: description || '',
+      price,
+      location, 
+      bedrooms: parseInt(bedrooms),
+      bathrooms: parseInt(bathrooms),
+      area: parseInt(area),
+      type: propertyType, // ✅ Now using valid enum value
+      amenities: amenities || [],
+      images: images || [],
+      leaseTerm: leaseTerm || '12 months',
+      deposit: deposit || '',
       available: true,
       featured: false,
-      agent: {
-        _id: 'mock-agent-id',
-        name: 'Test Agent',
-        email: 'agent@example.com'
-      },
-      createdAt: new Date().toISOString()
-    }
-  });
+      agent: agent._id // ✅ Now using real ObjectId
+    });
+    
+    // Populate agent data
+    await property.populate('agent', 'name email phone avatar');
+    
+    console.log('✅ Property saved to MongoDB with ID:', property._id);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Property added successfully!',
+      data: property
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving property to MongoDB:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
-// Also add the mock endpoint for testing
-router.post('/mock', (req, res) => {
-  console.log('🎯 Mock endpoint hit');
-  res.status(201).json({
-    success: true,
-    message: 'Mock property created!',
-    data: req.body
-  });
+// Keep your other routes...
+router.get('/', async (req, res) => {
+  try {
+    const properties = await Property.find({})
+      .populate('agent', 'name email phone avatar')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      count: properties.length,
+      data: properties
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+router.get('/featured', async (req, res) => {
+  try {
+    const properties = await Property.find({ featured: true, available: true })
+      .populate('agent', 'name email phone avatar')
+      .limit(6)
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      count: properties.length,
+      data: properties
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Debug route to check agents
+router.get('/debug/agents', async (req, res) => {
+  try {
+    const agents = await User.find({ role: 'agent' }).select('_id name email');
+    res.json({
+      success: true,
+      count: agents.length,
+      data: agents
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 module.exports = router;
